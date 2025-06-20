@@ -1,0 +1,60 @@
+name: 'clinical_trials_etl'
+version: '1.0.0'
+config-version: 2
+
+# This setting configures which "profile" dbt uses for this project.
+profile: 'clinical_trials_etl'
+
+# These configurations specify where dbt should look for different types of files.
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Configuring models
+models:
+  clinical_trials_etl:
+    # Config indicated by + and applies to all files under models/example/
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+
+# Configure seeds
+seeds:
+  clinical_trials_etl:
+    +schema: seeds
+
+# Configure snapshots
+snapshots:
+  clinical_trials_etl:
+    +target_schema: snapshots
+
+# Configure tests
+tests:
+  +store_failures: true
+  +schema: test_failures
+
+# Configure macros
+dispatch:
+  - macro_namespace: dbt_utils
+    search_order: ['clinical_trials_etl', 'dbt_utils']
+
+# Variables
+vars:
+  # The `start_date` variable will be accessible in all resources
+  start_date: '2020-01-01'
+  # DBT project timezone
+  timezone: 'UTC'

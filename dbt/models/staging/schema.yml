@@ -1,0 +1,79 @@
+version: 2
+
+sources:
+  - name: raw_data
+    description: Raw clinical trials data from S3
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+    schema: raw_data
+    tables:
+      - name: staging_clinical_trials
+        description: Raw clinical trials data loaded from S3
+        columns:
+          - name: nct_id
+            description: Unique clinical trial identifier
+            tests:
+              - not_null
+              - unique
+          - name: brief_title
+            description: Brief title of the study
+          - name: overall_status
+            description: Current status of the study
+            tests:
+              - accepted_values:
+                  values: ['Not yet recruiting', 'Recruiting', 'Enrolling by invitation', 
+                          'Active, not recruiting', 'Suspended', 'Terminated', 
+                          'Completed', 'Withdrawn', 'Unknown status']
+          - name: study_type
+            description: Type of clinical study
+            tests:
+              - accepted_values:
+                  values: ['Interventional', 'Observational', 'Expanded Access']
+          - name: extraction_timestamp
+            description: When the data was extracted
+            tests:
+              - not_null
+
+models:
+  - name: stg_clinical_trials
+    description: Cleaned and standardized clinical trials data
+    columns:
+      - name: trial_key
+        description: Surrogate key for the trial
+        tests:
+          - not_null
+          - unique
+      - name: nct_id
+        description: Clinical trial identifier
+        tests:
+          - not_null
+          - unique
+      - name: brief_title
+        description: Brief title of the study
+      - name: official_title
+        description: Official title of the study
+      - name: overall_status
+        description: Current status of the study
+        tests:
+          - not_null
+      - name: study_type
+        description: Type of clinical study
+        tests:
+          - not_null
+      - name: phase
+        description: Study phase
+      - name: condition_clean
+        description: Cleaned condition name
+      - name: sponsor_name_clean
+        description: Cleaned sponsor name
+      - name: location_country_clean
+        description: Cleaned country name
+      - name: study_start_date
+        description: Study start date
+      - name: completion_date
+        description: Study completion date
+      - name: is_active
+        description: Whether the study is currently active
+      - name: is_completed
+        description: Whether the study is completed
+      - name: extraction_date
+        description: Date when data was extracted

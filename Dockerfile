@@ -1,4 +1,4 @@
-FROM apache/airflow:2.8.0-python3.11
+FROM apache/airflow:2.9.1-python3.10
 
 USER root
 RUN apt-get update \
@@ -20,7 +20,6 @@ RUN pip install --no-cache-dir -r /requirements.txt
 # Copy source code
 COPY --chown=airflow:root src/ /opt/airflow/src/
 COPY --chown=airflow:root config/ /opt/airflow/config/
-COPY --chown=airflow:root sql/ /opt/airflow/sql/
 COPY --chown=airflow:root dbt/ /opt/airflow/dbt/
 
 # Set DBT profiles directory

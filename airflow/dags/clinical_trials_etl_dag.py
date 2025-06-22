@@ -18,7 +18,7 @@ def fetch_and_upload():
 
     def fetch_ctgov_data(page_token=None):
         params = {
-            "query.term": "interventional studies",
+            "query.term": "(COVERAGE[FullMatch]Phase 2 AND COVERAGE[FullMatch]Interventional AND AREA[StudyFirstSubmitDate]RANGE[01/01/2015, MAX]) AND (COVERAGE[FullMatch]Phase 3 AND COVERAGE[FullMatch]Interventional AND AREA[StudyFirstSubmitDate]RANGE[01/01/2015, MAX])",
             "format": "json",
             "pageSize": 500
         }

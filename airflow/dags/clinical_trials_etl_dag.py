@@ -20,7 +20,7 @@ def fetch_and_upload():
         params = {
             "query.term": "interventional studies",
             "format": "json",
-            "pageSize": 1000
+            "pageSize": 500
         }
         if page_token:
             params["pageToken"] = page_token

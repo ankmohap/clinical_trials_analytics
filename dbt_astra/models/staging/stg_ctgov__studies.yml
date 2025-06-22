@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: stg_ctgov__studies
+    description: "Parsed ClinicalTrials.gov JSON into structured columns"
+    columns:
+      - name: nct_id
+        description: "Unique identifier for each clinical trial"
+        tests:
+          - not_null

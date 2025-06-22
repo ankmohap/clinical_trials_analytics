@@ -1,82 +1,83 @@
-# Clinical Trials ETL Pipeline with DBT
+# Clinical Trials ETL Pipeline (Airflow + DBT + Snowflake on AWS)
 
-An AWS-ready data engineering project that consumes clinical trial data, processes it in micro-batches, stores in S3, loads to Snowflake, and uses DBT for staging and data mart transformations.
+## 🚀 Overview
+This project orchestrates an end-to-end data pipeline:
+- Extract clinical trial data from ClinicalTrials.gov API
+- Store as micro-batches in S3
+- Load into Snowflake using `COPY INTO`
+- Transform and validate using DBT
+- All steps are orchestrated by Apache Airflow running in Docker on an EC2 instance
 
-## Architecture Overview
-
+## 🧱 Folder Structure
 ```
-Clinical Trial API → Python Ingestion → S3 Bucket → Snowflake → DBT Transformations → Data Mart
-                                          ↑                           ↑
-                                    Airflow Orchestration    DBT Models & Tests
-                                          ↑
-                                   Terraform Infrastructure
-```
-
-## Project Structure
-
-```
-clinical-trials-etl/
-├── terraform/              # Infrastructure as Code
-├── airflow/                # Orchestration
-├── src/                    # Source code
-├── dbt/                    # DBT models and transformations
-├── sql/                    # Legacy database scripts (maintained)
-├── config/                 # Configuration files
-├── docker/                 # Docker configurations
-└── docs/                   # Documentation
+clinical-pipeline/
+├── dags/               # Airflow DAGs
+├── dbt/                # DBT models and profile
+├── docker/             # Docker Compose & Dockerfile
+├── terraform/          # Terraform IaC (EC2, VPC, KMS, SSM)
+├── plugins/            # Optional Airflow plugins
+├── bootstrap.sh        # Provisions infrastructure
+├── deploy.sh           # Pushes code to EC2 & starts Airflow
+├── .env.template       # Template for secrets
+├── .gitignore          # Git ignored files
+└── README.md           # This file
 ```
 
-## Quick Start
+## ⚙️ Setup & Deployment
 
-1. **Setup Infrastructure**:
-   ```bash
-   cd terraform
-   terraform init
-   terraform plan
-   terraform apply
-   ```
+### 1. 📦 Provision Infra
+```bash
+./bootstrap.sh
+```
+This script sets up:
+- VPC + subnets
+- EC2 instance for Airflow
+- S3 bucket for DAGs/data
+- KMS key + SSM Parameter Store for secrets
 
-2. **Setup DBT**:
-   ```bash
-   cd dbt
-   dbt deps
-   dbt debug
-   dbt run
-   dbt test
-   ```
+### 2. 🚀 Deploy Code to EC2
+```bash
+./deploy.sh
+```
+Copies your code and starts Airflow via Docker Compose.
 
-3. **Start Airflow**:
-   ```bash
-   docker-compose up -d
-   ```
+### 3. 🔗 Access Airflow
+```
+http://<EC2_PUBLIC_IP>:8080
+```
+Use the output from Terraform to get the IP.
 
-4. **Access Airflow UI**: http://localhost:8080
+## 🗃️ Secrets Management
+All secrets (AWS, Snowflake) are stored in AWS SSM with encryption via KMS.
+They are fetched inside DAGs using `boto3` and injected as environment variables.
 
-## Features
+## 📅 DAGs
+### `clinical_trials_dag`
+- Fetches data from API
+- Saves in S3 in chunks
+- Loads into Snowflake using COPY INTO
 
-- **Data Ingestion**: Consumes clinical trial API data
-- **Micro-batching**: Processes data in small batches
-- **S3 Storage**: Raw and processed data storage
-- **Snowflake Integration**: Data warehouse loading
-- **DBT Transformations**: Modern data modeling and transformations
-- **Data Quality**: DBT tests and data validation
-- **Airflow Orchestration**: Scheduled every Monday at 7 AM
-- **Terraform**: Complete AWS infrastructure setup
-- **Monitoring**: Comprehensive logging and alerting
+### `run_dbt_pipeline`
+- Debug, test and run DBT models using secrets from SSM
 
-## DBT Features
+## 🧪 Testing
+To manually run Airflow in EC2:
+```bash
+ssh -i ~/.ssh/your-key.pem ec2-user@<EC2_PUBLIC_IP>
+cd clinical-pipeline
+docker-compose up airflow-webserver airflow-scheduler
+```
 
-- **Staging Models**: Clean and standardize raw data
-- **Data Mart Models**: Business-ready aggregated tables
-- **Data Tests**: Automated data quality checks
-- **Documentation**: Auto-generated data lineage and docs
-- **Incremental Models**: Efficient processing of large datasets
+## ✅ Prerequisites
+- AWS CLI configured
+- SSH key pair
+- Terraform installed
+- Docker installed locally (optional for testing)
 
-## Environment Variables
+## 📌 Notes
+- Edit `.env.template` and rename to `.env` with your real credentials
+- Customize `dbt_project.yml`, Snowflake targets, and models
+- Consider setting up `dbt docs generate` as a future task
 
-Copy `.env.example` to `.env` and configure:
-- AWS credentials
-- Snowflake connection details
-- Clinical trial API keys
-- Airflow settings
-- DBT profiles
+---
+Enjoy building reliable, scalable, and reproducible ETL pipelines! 🧪

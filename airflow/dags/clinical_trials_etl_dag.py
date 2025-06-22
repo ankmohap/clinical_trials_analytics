@@ -1,167 +1,109 @@
-from datetime import datetime, timedelta
+# dags/fetch_and_transform.py
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.operators.bash import BashOperator
-from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
-from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
-from airflow.utils.dates import days_ago
-import sys
-import os
+from datetime import datetime, timedelta
+import requests, json, sys, logging, boto3
+import snowflake.connector
 
-# Add src directory to Python path
-sys.path.append('/opt/airflow/src')
+logger = logging.getLogger("airflow")
 
-from data_ingestion.clinical_trials_api import ingest_clinical_trials_data
-from data_ingestion.s3_uploader import upload_to_s3
-from snowflake.data_loader import load_data_to_snowflake
-from utils.config import get_config
+def get_ssm_param(name):
+    ssm = boto3.client("ssm", region_name="us-east-1")
+    return ssm.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
 
-# Default arguments for the DAG
-default_args = {
-    'owner': 'data-engineering',
-    'depends_on_past': False,
-    'start_date': datetime(2024, 1, 1),
-    'email_on_failure': True,
-    'email_on_retry': False,
-    'retries': 2,
-    'retry_delay': timedelta(minutes=5),
-    'email': [os.getenv('NOTIFICATION_EMAIL', 'admin@company.com')]
-}
+def fetch_and_upload():
+    AWS_ACCESS_KEY = get_ssm_param('/clinical-pipeline/AWS_ACCESS_KEY')
+    AWS_SECRET_KEY = get_ssm_param('/clinical-pipeline/AWS_SECRET_KEY')
+    S3_BUCKET = 'clinical-pipeline-data'
 
-# Create DAG
-dag = DAG(
-    'clinical_trials_etl',
-    default_args=default_args,
-    description='Clinical Trials ETL Pipeline',
-    schedule_interval='0 7 * * 1',  # Every Monday at 7 AM
+    def fetch_ctgov_data(page_token=None):
+        params = {
+            "query.term": "interventional studies",
+            "format": "json",
+            "pageSize": 1000
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        resp = requests.get("https://clinicaltrials.gov/api/v2/studies", params=params)
+        resp.raise_for_status()
+        return resp.json().get("studies", []), resp.json().get("nextPageToken")
+
+    def save_to_s3(data, filename):
+        s3 = boto3.client("s3", aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
+        s3.put_object(Bucket=S3_BUCKET, Key=filename, Body=json.dumps(data))
+        logger.info(f"✅ Uploaded to S3: {filename}")
+
+    page_token = None
+    total_studies = []
+    max_memory = 16 * 1024 * 1024
+    chunk_count = 0
+
+    while True:
+        studies, next_page_token = fetch_ctgov_data(page_token)
+        total_studies.extend(studies)
+        if not next_page_token:
+            break
+        page_token = next_page_token
+
+        if sys.getsizeof(json.dumps(total_studies)) >= max_memory:
+            chunk_filename = f"data_{chunk_count}.json"
+            chunk_data = total_studies[:len(total_studies) // 2]
+            total_studies = total_studies[len(total_studies) // 2:]
+            save_to_s3(chunk_data, chunk_filename)
+            chunk_count += 1
+
+    if total_studies:
+        save_to_s3(total_studies, f"data_{chunk_count}.json")
+        logger.info(f"✅ Final upload complete with {len(total_studies)} studies")
+
+def load_into_snowflake():
+    SF_USER = get_ssm_param('/clinical-pipeline/SF_USER')
+    SF_PASSWORD = get_ssm_param('/clinical-pipeline/SF_PASSWORD')
+    SF_ACCOUNT = get_ssm_param('/clinical-pipeline/SF_ACCOUNT')
+    SF_ROLE = get_ssm_param('/clinical-pipeline/SF_ROLE')
+    SF_WAREHOUSE = get_ssm_param('/clinical-pipeline/SF_WAREHOUSE')
+    SNOWFLAKE_DB = get_ssm_param('/clinical-pipeline/SNOWFLAKE_DB')
+    SNOWFLAKE_SCHEMA = get_ssm_param('/clinical-pipeline/SNOWFLAKE_SCHEMA')
+    SNOWFLAKE_STAGE = get_ssm_param('/clinical-pipeline/SNOWFLAKE_STAGE')
+    SNOWFLAKE_TABLE = get_ssm_param('/clinical-pipeline/SNOWFLAKE_TABLE')
+
+    ctx = snowflake.connector.connect(
+        user=SF_USER,
+        password=SF_PASSWORD,
+        account=SF_ACCOUNT,
+        role=SF_ROLE,
+        warehouse=SF_WAREHOUSE,
+        database=SNOWFLAKE_DB,
+        schema=SNOWFLAKE_SCHEMA
+    )
+    cs = ctx.cursor()
+    cs.execute(f"COPY INTO {SNOWFLAKE_TABLE}(raw_json) FROM {SNOWFLAKE_STAGE} FILE_FORMAT=(TYPE=JSON STRIP_OUTER_ARRAY=TRUE) ON_ERROR=CONTINUE")
+    cs.close()
+    ctx.close()
+
+# DAG Definition
+with DAG(
+    dag_id='clinical_trials_dag',
+    default_args={
+        'owner': 'airflow',
+        'depends_on_past': False,
+        'retries': 1,
+        'retry_delay': timedelta(minutes=5)
+    },
+    schedule_interval='@weekly',
+    start_date=datetime(2025, 1, 1),
     catchup=False,
-    max_active_runs=1,
-    tags=['clinical-trials', 'etl', 'aws', 'snowflake']
-)
+    tags=['clinical', 'ctgov']
+) as dag:
 
-def extract_clinical_trials_data(**context):
-    """Extract data from Clinical Trials API"""
-    execution_date = context['execution_date']
-    batch_id = execution_date.strftime('%Y%m%d_%H%M%S')
-    
-    config = get_config()
-    data = ingest_clinical_trials_data(
-        api_key=config['clinical_trial_api_key'],
-        base_url=config['clinical_trial_base_url'],
-        batch_id=batch_id
+    fetch_upload = PythonOperator(
+        task_id='fetch_and_upload',
+        python_callable=fetch_and_upload
     )
-    
-    return data
 
-def upload_data_to_s3(**context):
-    """Upload extracted data to S3"""
-    ti = context['ti']
-    data = ti.xcom_pull(task_ids='extract_data')
-    execution_date = context['execution_date']
-    batch_id = execution_date.strftime('%Y%m%d_%H%M%S')
-    
-    config = get_config()
-    s3_key = upload_to_s3(
-        data=data,
-        bucket_name=config['s3_bucket_name'],
-        batch_id=batch_id
+    snowflake_load = PythonOperator(
+        task_id='load_into_snowflake',
+        python_callable=load_into_snowflake
     )
-    
-    return s3_key
 
-def load_to_snowflake(**context):
-    """Load data from S3 to Snowflake"""
-    ti = context['ti']
-    s3_key = ti.xcom_pull(task_ids='upload_to_s3')
-    
-    config = get_config()
-    result = load_data_to_snowflake(
-        s3_key=s3_key,
-        snowflake_config=config['snowflake']
-    )
-    
-    return result
-
-# Task 1: Extract data from Clinical Trials API
-extract_task = PythonOperator(
-    task_id='extract_data',
-    python_callable=extract_clinical_trials_data,
-    dag=dag
-)
-
-# Task 2: Upload data to S3
-upload_task = PythonOperator(
-    task_id='upload_to_s3',
-    python_callable=upload_data_to_s3,
-    dag=dag
-)
-
-# Task 3: Wait for S3 file to be available
-s3_sensor = S3KeySensor(
-    task_id='wait_for_s3_file',
-    bucket_name="{{ var.value.s3_bucket_name }}",
-    bucket_key="{{ ti.xcom_pull(task_ids='upload_to_s3') }}",
-    aws_conn_id='aws_default',
-    timeout=300,
-    poke_interval=30,
-    dag=dag
-)
-
-# Task 4: Create staging tables in Snowflake
-create_staging_tables = SnowflakeOperator(
-    task_id='create_staging_tables',
-    snowflake_conn_id='snowflake_default',
-    sql='sql/staging/create_staging_tables.sql',
-    dag=dag
-)
-
-# Task 5: Load data to Snowflake
-load_task = PythonOperator(
-    task_id='load_to_snowflake',
-    python_callable=load_to_snowflake,
-    dag=dag
-)
-
-# Task 6: Load staging data
-load_staging_data = SnowflakeOperator(
-    task_id='load_staging_data',
-    snowflake_conn_id='snowflake_default',
-    sql='sql/staging/load_staging_data.sql',
-    dag=dag
-)
-
-# Task 7: Create data mart tables
-create_data_mart = SnowflakeOperator(
-    task_id='create_data_mart',
-    snowflake_conn_id='snowflake_default',
-    sql='sql/data_mart/create_summary_tables.sql',
-    dag=dag
-)
-
-# Task 8: Create aggregated views
-create_views = SnowflakeOperator(
-    task_id='create_aggregated_views',
-    snowflake_conn_id='snowflake_default',
-    sql='sql/data_mart/create_aggregated_views.sql',
-    dag=dag
-)
-
-# Task 9: Data quality checks
-data_quality_check = BashOperator(
-    task_id='data_quality_check',
-    bash_command='python /opt/airflow/src/utils/data_quality_checks.py',
-    dag=dag
-)
-
-# Task 10: Send success notification
-success_notification = BashOperator(
-    task_id='success_notification',
-    bash_command='echo "Clinical Trials ETL pipeline completed successfully"',
-    dag=dag
-)
-
-# Define task dependencies
-extract_task >> upload_task >> s3_sensor >> create_staging_tables
-create_staging_tables >> load_task >> load_staging_data
-load_staging_data >> create_data_mart >> create_views
-create_views >> data_quality_check >> success_notification
+    fetch_upload >> snowflake_load

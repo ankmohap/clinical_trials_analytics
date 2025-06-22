@@ -1,0 +1,9 @@
+# models/sources.yml
+version: 2
+
+sources:
+  - name: ctgov
+    schema: RAW
+    database: ASTRA_DB
+    tables:
+      - name: raw_ctgov__studies

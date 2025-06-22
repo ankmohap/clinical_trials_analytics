@@ -1,55 +1,36 @@
 variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "environment" {
-  description = "Environment name"
-  type        = string
-  default     = "dev"
-  validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be dev, staging, or prod."
-  }
+  default = "us-east-1"
 }
 
 variable "project_name" {
-  description = "Project name"
-  type        = string
-  default     = "clinical-trials-etl"
+  default = "clinical-pipeline"
 }
 
-variable "s3_bucket_name" {
-  description = "S3 bucket name for data storage"
-  type        = string
+variable "ec2_ami" {
+  description = "Amazon Linux 2 AMI ID"
 }
 
-variable "airflow_instance_type" {
-  description = "EC2 instance type for Airflow"
-  type        = string
-  default     = "t3.medium"
+variable "ec2_instance_type" {
+  default = "t3.medium"
 }
 
-variable "vpc_cidr" {
-  description = "CIDR block for VPC"
-  type        = string
-  default     = "10.0.0.0/16"
+variable "key_name" {
+  description = "EC2 SSH Key Name"
 }
 
-variable "allowed_ip_ranges" {
-  description = "IP ranges allowed to access Airflow"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "snowflake_account" {
-  description = "Snowflake account identifier"
-  type        = string
-  sensitive   = true
-}
-
-variable "notification_email" {
-  description = "Email for notifications"
-  type        = string
+variable "secret_values" {
+  type = map(string)
+  default = {
+    AWS_ACCESS_KEY      = "your-access-key"
+    AWS_SECRET_KEY      = "your-secret-key"
+    SF_USER             = "snowflake-user"
+    SF_PASSWORD         = "snowflake-pass"
+    SF_ACCOUNT          = "snowflake-account"
+    SF_ROLE             = "ACCOUNTADMIN"
+    SF_WAREHOUSE        = "COMPUTE_WH"
+    SNOWFLAKE_DB        = "CLINICAL_DB"
+    SNOWFLAKE_SCHEMA    = "PUBLIC"
+    SNOWFLAKE_STAGE     = "@raw_stage"
+    SNOWFLAKE_TABLE     = "raw_trials"
+  }
 }

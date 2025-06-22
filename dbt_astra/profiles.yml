@@ -1,0 +1,13 @@
+dbt_astra:
+  outputs:
+    dev:
+      account: ACCOUNT
+      database: DATABASE
+      password: PASSWORD
+      role: ROLE
+      schema: RAW
+      threads: 1
+      type: snowflake
+      user: DBT
+      warehouse: WAREHOUSE
+  target: dev

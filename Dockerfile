@@ -1,26 +1,16 @@
-FROM apache/airflow:2.9.1-python3.10
+FROM apache/airflow:latest-python3.12
 
-USER root
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-         vim \
-         curl \
-         build-essential \
-         git \
-  && apt-get autoremove -yqq --purge \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+# Set the working directory
+WORKDIR /opt/airflow
 
-USER airflow
+# Copy the requirements.txt file to the container
+COPY requirements.txt ./
 
-# Copy requirements and install Python packages
-COPY requirements.txt /requirements.txt
-RUN pip install --no-cache-dir -r /requirements.txt
+# Check if the requirements.txt was copied
+RUN ls -al /opt/airflow
 
-# Copy source code
-COPY --chown=airflow:root src/ /opt/airflow/src/
-COPY --chown=airflow:root config/ /opt/airflow/config/
-COPY --chown=airflow:root dbt/ /opt/airflow/dbt/
+# Install the required Python packages from the requirements.txt file
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set DBT profiles directory
-ENV DBT_PROFILES_DIR=/opt/airflow/dbt
+# Check that pip packages are installed
+RUN pip list
